@@ -1,0 +1,56 @@
+name: Windows RDP Access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 9999
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Download ngrok
+      run: |
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        Expand-Archive -Path "ngrok.zip" -DestinationPath "."
+
+    - name: Enable RDP Access
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
+    - name: Create User and Set Password
+      run: |
+        net user runneradmin P@ssw0rd! /add
+        net localgroup administrators runneradmin /add
+
+    - name: Start ngrok Tunnel
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      run: |
+        .\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
+        Start-Process -NoNewWindow -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389"
+
+    - name: Get RDP Connection Details
+      run: |
+        Start-Sleep -Seconds 10
+        $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+        $rdpUrl = $response.tunnels[0].public_url
+        Write-Host "==============================================="
+        Write-Host "RDP Connection Details:"
+        Write-Host "Address: $($rdpUrl -replace 'tcp://', '')"
+        Write-Host "Username: runneradmin"
+        Write-Host "Password: P@ssw0rd!"
+        Write-Host "==============================================="
+
+    - name: Keep Workflow Running
+      run: |
+        Write-Host "RDP is ready! Press Ctrl+C in the Actions log to stop."
+        while ($true) {
+          Start-Sleep -Seconds 60
+          Write-Host "Workflow still running... $(Get-Date)"
+        }
