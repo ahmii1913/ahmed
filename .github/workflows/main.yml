@@ -33,23 +33,60 @@ jobs:
       run: |
         .\ngrok.exe authtoken $env:NGROK_AUTH_TOKEN
         Start-Process -NoNewWindow -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389"
+        Write-Host "ngrok tunnel started, waiting for initialization..."
 
     - name: Get RDP Connection Details
       run: |
-        Start-Sleep -Seconds 10
-        $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-        $rdpUrl = $response.tunnels[0].public_url
-        Write-Host "==============================================="
-        Write-Host "RDP Connection Details:"
-        Write-Host "Address: $($rdpUrl -replace 'tcp://', '')"
-        Write-Host "Username: runneradmin"
-        Write-Host "Password: P@ssw0rd!"
-        Write-Host "==============================================="
+        Write-Host "Waiting for ngrok to initialize..."
+        Start-Sleep -Seconds 15
+        
+        $maxAttempts = 10
+        $attempt = 0
+        $connected = $false
+        
+        while (-not $connected -and $attempt -lt $maxAttempts) {
+          try {
+            $attempt++
+            Write-Host "Attempt $attempt to connect to ngrok API..."
+            $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -ErrorAction Stop
+            
+            if ($response.tunnels.Count -gt 0) {
+              $rdpUrl = $response.tunnels[0].public_url
+              Write-Host ""
+              Write-Host "==============================================="
+              Write-Host "          RDP CONNECTION READY!                "
+              Write-Host "==============================================="
+              Write-Host "Address : $($rdpUrl -replace 'tcp://', '')"
+              Write-Host "Username: runneradmin"
+              Write-Host "Password: P@ssw0rd!"
+              Write-Host "==============================================="
+              Write-Host ""
+              $connected = $true
+            }
+          }
+          catch {
+            Write-Host "Waiting for ngrok... ($attempt/$maxAttempts)"
+            Start-Sleep -Seconds 3
+          }
+        }
+        
+        if (-not $connected) {
+          Write-Error "Failed to connect to ngrok after $maxAttempts attempts"
+          exit 1
+        }
 
     - name: Keep Workflow Running
       run: |
-        Write-Host "RDP is ready! Press Ctrl+C in the Actions log to stop."
+        Write-Host "RDP Session is Active!"
+        Write-Host "Session will remain active for up to 6 hours (GitHub Actions limit)"
+        Write-Host "Stop the workflow manually when done to save Actions minutes"
+        Write-Host ""
+        
+        $startTime = Get-Date
         while ($true) {
-          Start-Sleep -Seconds 60
-          Write-Host "Workflow still running... $(Get-Date)"
+          $elapsed = (Get-Date) - $startTime
+          $hours = [math]::Floor($elapsed.TotalHours)
+          $minutes = [math]::Floor($elapsed.TotalMinutes % 60)
+          Write-Host "Session active for: $hours hours $minutes minutes - $(Get-Date -Format 'HH:mm:ss')"
+          Start-Sleep -Seconds 300
         }
